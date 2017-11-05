@@ -17,7 +17,7 @@ from sklearn.naive_bayes import GaussianNB
 
 ## ============================ 0. Set parameters ========================== ##
 
-load_new_data = False # Set True to reload and format data
+load_new_data = True # Set True to reload and format data
 subset_data = False # Set True to use only 10000 records for training
 na_threshold = 40 # All features with more %NA will be dropped
 num_features = 20 # Number of top features that will be used
