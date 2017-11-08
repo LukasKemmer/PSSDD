@@ -16,8 +16,6 @@ def read_data():
 
 def format_data(X_train, X_sub, column_names):
     # Set missing values to none
-    #X_train[X_train==-1] = None
-    #X_sub[X_sub==-1] = None
     
     # Adjust data types for columns with binary data
     bin_cols = [c for c in column_names if '_bin' in c]
