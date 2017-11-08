@@ -22,7 +22,7 @@ subset_data = False # Set True to use only 10000 records for training
 train_mode = True # Set True if model should be trained
 make_predictions = False # Set true if prediction for submission should be made
 cv_folds = 5 # Number of folds for cross-validation
-na_threshold = 40 # All features with more %NA will be dropped
+na_threshold = 100 # All features with more %NA will be dropped
 num_features = 20 # Number of top features that will be used
 np.random.seed(123123) # Random seed to produce comparable results
 
@@ -125,7 +125,7 @@ if train_mode:
     Y = Y_train.copy()
     
     for train_index, test_index in cv_iterator:
-        #print("Cross-validation, Fold",(len(normalized_gini)+1))
+        print("Cross-validation, Fold %d" % (len(normalized_gini)+1))
         
         # Split data into training and testing set
         X_train = X.iloc[train_index,:]
