@@ -1,2 +1,2 @@
 # PSSDD
-INF554: Kaggle Chalange 1
+INF554: Kaggle Challenge 1
