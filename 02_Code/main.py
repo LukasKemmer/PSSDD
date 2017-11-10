@@ -18,7 +18,7 @@ from sklearn.naive_bayes import GaussianNB
 
 ## ============================ 0. Set parameters ========================== ##
 
-load_new_data = False # Set True to reload and format data
+load_new_data = True # Set True to reload and format data
 subset_data = True # Set True to use only 10000 records for training
 train_mode = True # Set True if model should be trained
 make_predictions = False # Set true if prediction for submission should be made
