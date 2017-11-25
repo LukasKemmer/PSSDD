@@ -6,6 +6,7 @@ Created on Mon Oct 30 15:11:11 2017
 @author: lukaskemmer
 """
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 def read_data():
     # Use Pandas to read data into data frames. NA Values are marked by '-1'
@@ -19,6 +20,10 @@ def read_data():
     # Save the IDs for the testing set
     X_test_ids = X_test.id
     X_test = X_test.drop(['id'], axis=1)
+    
+    # Split the training set for model stacking
+    # TODO: Implement later, when decided to use actual model for stacking
+    
     return X_train, y_train, X_test, X_test_ids, X_train.columns
 
 def format_data(X_train, X_test, column_names):
@@ -28,10 +33,11 @@ def format_data(X_train, X_test, column_names):
     X_test[bin_cols] = X_test[bin_cols].astype('bool')
     
     # Adjust data types for columns with categorical data
+    '''
     for c in [c for c in column_names if '_cat' in c]:        
         X_train[c] = X_train[c].astype('category')
         X_test[c] = X_test[c].astype('category')
-
+        '''
     return X_train, X_test
 
 def describe_data(X_train, X_sub):

@@ -15,7 +15,7 @@ from scipy.misc import comb
 from xgboost import plot_importance
 
 def replace_nas(X_train, X_test):
-    # Calculate media 
+    # Calculate median of X_train and X_test combined
     median = X_train.append(X_test).median()
     
     # Replace remaining NAs with median
@@ -27,29 +27,69 @@ def replace_nas(X_train, X_test):
 def interaction_features(X):
     X['mult'] = X['ps_reg_01'] * X['ps_reg_03'] * X['ps_reg_02']
     X['ps_car'] = X['ps_car_13'] * X['ps_reg_03'] * X['ps_car_13']
-    for c in itertools.combinations(X.select_dtypes(include=['int64', 'float64']).columns, r=2):
-        X[c[0]+'-'+c[1]] = X[c[0]] * X[c[1]]    
+    for c in itertools.combinations(X.select_dtypes(include=['float64']).columns, r=2):
+        X[c[0]+'-'+c[1]] = X[c[0]].astype('float64') * X[c[1]].astype('float64')
     return X
 
 def polynomial_features(X):
-    for col in X.select_dtypes(include=['int64', 'float64']).columns:
+    # Create polynomial features only for continuos features
+    # No point in polynomial features for ordinal variables (int) because polynomes
+    # Wont change order when of ints > 0 (which is the case)
+    for col in X.select_dtypes(include=['float64']).columns:
         X[col+'_pow2'] = np.power(X[col], 2)
         X[col+'_pow3'] = np.power(X[col], 3)
+        X[col+'_pow4'] = np.power(X[col], 4)
+        X[col+'_pow5'] = np.power(X[col], 5)
+        X[col+'_pow6'] = np.power(X[col], 6)
     return X
 
-def add_features(X_train, X_test):
-    
-    # Add interactions of features
-    X_train = interaction_features(X_train)
-    X_test = interaction_features(X_test)
-    
+def add_features(X_train, X_test, y_train):    
     # Add polynomial features
+    print("\n     I) Add polynomial features ...\n")
     #X_train = polynomial_features(X_train)
     #X_test = polynomial_features(X_test)
+
+    print("\n     II) Add interaction terms ...\n")    
+    # Add interactions of features
+    #X_train = interaction_features(X_train)
+    #X_test = interaction_features(X_test)
     
     # add combinations
     combs = [('ps_reg_01', 'ps_car_02_cat'),
              ('ps_reg_01', 'ps_car_04_cat')]
+    ''',
+             ('ps_reg_01', 'ps_car_01_cat'),
+             ('ps_reg_01', 'ps_car_03_cat'),
+             ('ps_reg_01', 'ps_car_05_cat'),
+             ('ps_reg_01', 'ps_car_06_cat'),
+             ('ps_reg_01', 'ps_car_07_cat'),
+             ('ps_reg_01', 'ps_car_08_cat'),
+             ('ps_reg_01', 'ps_car_09_cat'),
+             ('ps_reg_01', 'ps_car_10_cat'),
+             ('ps_reg_01', 'ps_car_11_cat'),
+             ('ps_reg_02', 'ps_car_02_cat'),
+             ('ps_reg_02', 'ps_car_04_cat'),
+             ('ps_reg_02', 'ps_car_01_cat'),
+             ('ps_reg_02', 'ps_car_03_cat'),
+             ('ps_reg_02', 'ps_car_05_cat'),
+             ('ps_reg_02', 'ps_car_06_cat'),
+             ('ps_reg_02', 'ps_car_07_cat'),
+             ('ps_reg_02', 'ps_car_08_cat'),
+             ('ps_reg_02', 'ps_car_09_cat'),
+             ('ps_reg_02', 'ps_car_10_cat'),
+             ('ps_reg_02', 'ps_car_11_cat'),
+             ('ps_reg_03', 'ps_car_02_cat'),
+             ('ps_reg_03', 'ps_car_04_cat'),
+             ('ps_reg_03', 'ps_car_01_cat'),
+             ('ps_reg_03', 'ps_car_03_cat'),
+             ('ps_reg_03', 'ps_car_05_cat'),
+             ('ps_reg_03', 'ps_car_06_cat'),
+             ('ps_reg_03', 'ps_car_07_cat'),
+             ('ps_reg_03', 'ps_car_08_cat'),
+             ('ps_reg_03', 'ps_car_09_cat'),
+             ('ps_reg_03', 'ps_car_10_cat'),
+             ('ps_reg_03', 'ps_car_11_cat')] 
+    '''
     
     for n_c, (f1, f2) in enumerate(combs):
         # Create feature combinations
@@ -62,7 +102,18 @@ def add_features(X_train, X_test):
         lbl.fit(list(X_train[name1].values) + list(X_test[name1].values))
         X_train[name1] = lbl.transform(list(X_train[name1].values))
         X_test[name1] = lbl.transform(list(X_test[name1].values))
-
+    
+    
+    # Encode categorical data
+    print("\n     III) Add encoded categorical features ...\n")
+    for col in [col for col in X_train.columns if '_cat' in col]:
+        X_train[col + "_avg"], X_test[col + "_avg"] = target_encode(
+                trn_series=X_train[col],
+                tst_series=X_test[col],
+                target=y_train,
+                min_samples_leaf=200,
+                smoothing=10)
+    
     return X_train, X_test
 
 def get_feature_importance(X, y, model):
@@ -71,77 +122,10 @@ def get_feature_importance(X, y, model):
     model.fit(X, y)
     importances = model.feature_importances_
 
-    # Plot importances
-    #plot_importance(model)
-    #plt.show()
-
     return pd.DataFrame({'feature' : X.columns, 'importance' : importances}
                         ).sort_values('importance', ascending=False)
 
-'''
-def drop_features():
-    train_features = [
-    "ps_car_13",  #            : 1571.65 / shadow  609.23
-	"ps_reg_03",  #            : 1408.42 / shadow  511.15
-	"ps_ind_05_cat",  #        : 1387.87 / shadow   84.72
-	"ps_ind_03",  #            : 1219.47 / shadow  230.55
-	"ps_ind_15",  #            :  922.18 / shadow  242.00
-	"ps_reg_02",  #            :  920.65 / shadow  267.50
-	"ps_car_14",  #            :  798.48 / shadow  549.58
-	"ps_car_12",  #            :  731.93 / shadow  293.62
-	"ps_car_01_cat",  #        :  698.07 / shadow  178.72
-	"ps_car_07_cat",  #        :  694.53 / shadow   36.35
-	"ps_ind_17_bin",  #        :  620.77 / shadow   23.15
-	"ps_car_03_cat",  #        :  611.73 / shadow   50.67
-	"ps_reg_01",  #            :  598.60 / shadow  178.57
-	"ps_car_15",  #            :  593.35 / shadow  226.43
-	"ps_ind_01",  #            :  547.32 / shadow  154.58
-	"ps_ind_16_bin",  #        :  475.37 / shadow   34.17
-	"ps_ind_07_bin",  #        :  435.28 / shadow   28.92
-	"ps_car_06_cat",  #        :  398.02 / shadow  212.43
-	"ps_car_04_cat",  #        :  376.87 / shadow   76.98
-	"ps_ind_06_bin",  #        :  370.97 / shadow   36.13
-	"ps_car_09_cat",  #        :  214.12 / shadow   81.38
-	"ps_car_02_cat",  #        :  203.03 / shadow   26.67
-	"ps_ind_02_cat",  #        :  189.47 / shadow   65.68
-	"ps_car_11",  #            :  173.28 / shadow   76.45
-	"ps_car_05_cat",  #        :  172.75 / shadow   62.92
-	"ps_calc_09",  #           :  169.13 / shadow  129.72
-	"ps_calc_05",  #           :  148.83 / shadow  120.68
-	"ps_ind_08_bin",  #        :  140.73 / shadow   27.63
-	"ps_car_08_cat",  #        :  120.87 / shadow   28.82
-	"ps_ind_09_bin",  #        :  113.92 / shadow   27.05
-	"ps_ind_04_cat",  #        :  107.27 / shadow   37.43
-	"ps_ind_18_bin",  #        :   77.42 / shadow   25.97
-	"ps_ind_12_bin",  #        :   39.67 / shadow   15.52
-	"ps_ind_14"  #            :   37.37 / shadow   16.65
-    #"mult",
-    #"ps_car",
-    #"ps_ind"
-    ]
-    
-    
-    # Drop unimportant features
-    #X_train = X_train[train_features]
-    #X_test = X_test[train_features]
-
-
-    
-    # Create dummy features for categorical features
-    X = pd.concat([X, pd.get_dummies(X.select_dtypes(
-        include=['category']))], axis=1)
-    
-
-   # Drop categorical features that have been transformed into dummies
-   # X_train = X.drop([col for col in X.columns if '_cat' in col],
-   #                        axis=1)
-'''
-
-def add_noise(series, noise_level):
-    return series * (1 + noise_level * np.random.randn(len(series)))
-
 def target_encode(trn_series=None,    # Revised to encode validation series
-                  #val_series=None,
                   tst_series=None,
                   target=None,
                   min_samples_leaf=1,
@@ -182,16 +166,7 @@ def target_encode(trn_series=None,    # Revised to encode validation series
     
     # pd.merge does not keep the index so restore it
     ft_trn_series.index = trn_series.index
-    '''
-    ft_val_series = pd.merge(
-        val_series.to_frame(val_series.name),
-        averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
-        on=val_series.name,
-        how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
-    
-    # pd.merge does not keep the index so restore it
-    ft_val_series.index = val_series.index
-    '''
+
     ft_tst_series = pd.merge(
         tst_series.to_frame(tst_series.name),
         averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
@@ -200,5 +175,5 @@ def target_encode(trn_series=None,    # Revised to encode validation series
     
     # pd.merge does not keep the index so restore it
     ft_tst_series.index = tst_series.index
-    return add_noise(ft_trn_series, noise_level), add_noise(ft_tst_series, noise_level)
-    #return add_noise(ft_trn_series, noise_level), add_noise(ft_val_series, noise_level), add_noise(ft_tst_series, noise_level)
+    
+    return ft_trn_series, ft_tst_series
