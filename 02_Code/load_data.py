@@ -15,12 +15,12 @@ def read_data():
 
     # Split X_train in X_train and y_train
     y_train = X_train.target
-    X_train = X_train.drop(['target', 'id'], axis=1)
     
     # Save the IDs for the testing and training set set
     X_test_ids = X_test.id
     X_train_ids = X_train.id
-    
+    X_train = X_train.drop(['target', 'id'], axis=1)
+
     # Drop id in the testing set
     X_test = X_test.drop(['id'], axis=1)
     
