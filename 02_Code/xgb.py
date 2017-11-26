@@ -23,9 +23,9 @@ from sklearn.feature_selection import RFECV
 ## ============================ 0. Set parameters ========================== ##
 
 # Define parameters
-load_new_data = False # Set True to reload and format data
-subset_data = 0 # Set Treu to select a random subsample of X, Y for testing
-subset_size = 1000 # Set the size of the random subsample
+load_new_data = True # Set True to reload and format data
+subset_data = True # Set Treu to select a random subsample of X, Y for testing
+subset_size = 100000 # Set the size of the random subsample
 estimate_feature_importance = False # Use xgb to estimate feature importance
 train_model = True # Set True if model should be trained
 make_predictions = False # Set true if prediction for submission should be made
@@ -51,7 +51,7 @@ xgb_params = {'max_depth': 4, # Maximum tree depth for base learners
               'scale_pos_weight' : 1.6, # Balancing of positive and negative weights
               'base_score' : 0.5} # The initial prediction score of all instances, global bias
 
-# Set mandatory features to be used
+# Define features to be used
 train_features = ["ps_car_13",  
                   "ps_reg_03", 
                   "ps_ind_03", 
@@ -120,6 +120,7 @@ visualize_features(X_train, "Training data", bin_features=False,
 visualize_features(X_test, "Testing data", bin_features=False, 
                    cat_features=0, cont_features=False)
 
+
 ## ========================= 2. Feature engineering ======================== ##
 print("\n2. Adding and selecting features ...\n")
 # Select features
@@ -132,48 +133,31 @@ print("\n   a) Don't replace NAs for XGB ...\n")
 
 # Feature engineering
 print("\n   b) Add features ...\n")    
-X_train, X_test = add_features(X_train, X_test, y_train)
 
+# Add combinations of features
+print("\n     I) Add feature combinations ...\n")    
+combinations = [('ps_reg_01', 'ps_car_02_cat'),('ps_reg_01', 'ps_car_04_cat')]
+X_train, X_test = add_combination_features(X_train, X_test, combinations)
+
+# Encode categorical data
+print("\n     II) Add encoded categorical features ...\n")
+for col in [col for col in X_train.columns if '_cat' in col]:
+    X_train[col + "_avg"], X_test[col + "_avg"] = target_encode(
+            trn_series=X_train[col],
+            tst_series=X_test[col],
+            target=y_train,
+            min_samples_leaf=200,
+            smoothing=10)    
+
+# Create dummies for categorical features
+print("\n     III) Add dummies for categorical features ...\n")
 col_names = ["ps_car_07_cat",
-               "ps_car_03_cat",
-               "ps_car_09_cat",
-               "ps_car_02_cat",
-               "ps_ind_02_cat",
-               "ps_car_05_cat"]
-               #"ps_car_08_cat"]
-               #"ps_ind_04_cat"]
-               #"ps_ind_05_cat"]
-               #"ps_car_10_cat"]
-
-# Get dummies for features
-X_train['name'] = 'X_train'
-X_test['name'] = 'X_test'
-
-# Merge X_train and X_test
-X = X_train.append(X_test)
-
-for col in col_names:
-    # Create dummies
-    dummies = pd.get_dummies(X[col].astype(str))
-    # Adjust dummie names
-    dummies.columns = col + "-" + dummies.columns
-    X = pd.concat([X, dummies], axis = 1)
-    # Drop categorical column
-    X.drop(col)
-
-# Split X_train and X_test
-X_train = X.loc[X['name']=='X_train', X.columns != 'name']
-X_test = X.loc[X['name']=='X_test', X.columns != 'name']    
-
-# Feature evaluation
-print("\n   c) Evaluate features ...\n")
-additional_features = []
-if estimate_feature_importance:
-    feature_importance = get_feature_importance(
-            X_train.copy().select_dtypes(exclude=['category']), 
-            y_train, 
-            model = XGBClassifier())
-    additional_features = feature_importance.loc[feature_importance["importance"]>0].iloc[:30,0]
+             "ps_car_03_cat",
+             "ps_car_09_cat",
+             "ps_car_02_cat",
+             "ps_ind_02_cat",
+             "ps_car_05_cat"]
+X_train, X_test = create_dummies(X_train, X_test, col_names)
 
 ## ===================== 3. Model training and evaluation ================== ##    
 print("\n3. Training and validating model\n")
@@ -219,16 +203,11 @@ if train_model:
 
         # Make test set prediction
         y_pred += xgb.predict_proba(X_test[X_train.columns])[:,1]
-        
         del X_train, X_validate, y_train, y_validate
 
     # Evaluate results from CV
     print("Normalized gini coefficient %f +/- %f" % (np.mean(normalized_gini), 
                                                      2*np.std(normalized_gini)))
-    
-    # Plot single tree
-    plot_tree(xgb)
-    plt.show()
     
     # Calculate prediction
     y_pred /= k
