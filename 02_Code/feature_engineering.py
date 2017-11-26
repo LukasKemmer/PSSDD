@@ -44,9 +44,6 @@ def polynomial_features(X):
     return X
 
 def add_combination_features(X_train, X_test, combs):
-    # add combinations
-    combs = [('ps_reg_01', 'ps_car_02_cat'),
-             ('ps_reg_01', 'ps_car_04_cat')]
     
     for n_c, (f1, f2) in enumerate(combs):
         # Create feature combinations
@@ -73,86 +70,17 @@ def create_dummies(X_train, X_test, col_names):
     for col in col_names:
         # Create dummies
         dummies = pd.get_dummies(X[col].astype(str))
+        
         # Adjust dummie names
         dummies.columns = col + "-" + dummies.columns
         X = pd.concat([X, dummies], axis = 1)
+        
         # Drop categorical column
         X.drop(col)
     
     # Split X_train and X_test
     X_train = X.loc[X['name']=='X_train', X.columns != 'name']
     X_test = X.loc[X['name']=='X_test', X.columns != 'name']   
-    
-    return X_train, X_test
-
-def add_features(X_train, X_test, y_train):    
-    # Add polynomial features
-    print("\n     I) Add polynomial features ...\n")
-    #X_train = polynomial_features(X_train)
-    #X_test = polynomial_features(X_test)
-
-    print("\n     II) Add interaction terms ...\n")    
-    # Add interactions of features
-    #X_train = interaction_features(X_train)
-    #X_test = interaction_features(X_test)
-    
-    # add combinations
-    combs = [('ps_reg_01', 'ps_car_02_cat'),
-             ('ps_reg_01', 'ps_car_04_cat')]
-    
-    for n_c, (f1, f2) in enumerate(combs):
-        # Create feature combinations
-        name1 = f1 + "_plus_" + f2
-        X_train[name1] = X_train[f1].astype(str) + "_" + X_train[f2].astype(str)
-        X_test[name1] = X_test[f1].astype(str) + "_" + X_test[f2].astype(str)
-        
-        # Encode labels
-        lbl = LabelEncoder()
-        lbl.fit(list(X_train[name1].values) + list(X_test[name1].values))
-        X_train[name1] = lbl.transform(list(X_train[name1].values))
-        X_test[name1] = lbl.transform(list(X_test[name1].values))
-
-    # Encode categorical data
-    print("\n     III) Add encoded categorical features ...\n")
-    for col in [col for col in X_train.columns if '_cat' in col]:
-        X_train[col + "_avg"], X_test[col + "_avg"] = target_encode(
-                trn_series=X_train[col],
-                tst_series=X_test[col],
-                target=y_train,
-                min_samples_leaf=200,
-                smoothing=10)
-    
-    col_names = ["ps_car_07_cat",
-                   "ps_car_03_cat",
-                   "ps_car_09_cat",
-                   "ps_car_02_cat",
-                   "ps_ind_02_cat",
-                   "ps_car_05_cat"]
-                   #"ps_car_08_cat"]
-                   #"ps_ind_04_cat"]
-                   #"ps_ind_05_cat"]
-                   #"ps_car_10_cat"]
-    
-    # Get dummies for features
-    X_train['name'] = 'X_train'
-    X_test['name'] = 'X_test'
-    
-    # Merge X_train and X_test
-    X = X_train.append(X_test)
-    
-    for col in col_names:
-        # Create dummies
-        dummies = pd.get_dummies(X[col].astype(str))
-        # Adjust dummie names
-        dummies.columns = col + "-" + dummies.columns
-        X = pd.concat([X, dummies], axis = 1)
-        # Drop categorical column
-        X.drop(col)
-    
-    # Split X_train and X_test
-    X_train = X.loc[X['name']=='X_train', X.columns != 'name']
-    X_test = X.loc[X['name']=='X_test', X.columns != 'name']    
-
     
     return X_train, X_test
 
