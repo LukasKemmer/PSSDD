@@ -15,16 +15,14 @@ def read_data():
 
     # Split X_train in X_train and y_train
     y_train = X_train.target
+    X_train_ids = X_train.id
     X_train = X_train.drop(['target', 'id'], axis=1)
-
+    
     # Save the IDs for the testing set
     X_test_ids = X_test.id
     X_test = X_test.drop(['id'], axis=1)
     
-    # Split the training set for model stacking
-    # TODO: Implement later, when decided to use actual model for stacking
-    
-    return X_train, y_train, X_test, X_test_ids, X_train.columns
+    return X_train, y_train, X_test, X_test_ids, X_train_ids, X_train.columns
 
 def format_data(X_train, X_test, column_names):
     # Adjust data types for columns with binary data

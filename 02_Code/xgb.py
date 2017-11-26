@@ -18,15 +18,13 @@ from xgboost import plot_tree
 from functions import *
 from feature_engineering import *
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.feature_selection import RFECV
 
 ## ============================ 0. Set parameters ========================== ##
 
 # Define parameters
-load_new_data = True # Set True to reload and format data
-subset_data = True # Set Treu to select a random subsample of X, Y for testing
-subset_size = 100000 # Set the size of the random subsample
-estimate_feature_importance = False # Use xgb to estimate feature importance
+load_new_data = False # Set True to reload and format data
+subset_data = False # Set Treu to select a random subsample of X, Y for testing
+subset_size = 1000 # Set the size of the random subsample
 train_model = True # Set True if model should be trained
 make_predictions = False # Set true if prediction for submission should be made
 k = 5 # Number of folds for cross-validation
@@ -92,7 +90,7 @@ train_features = ["ps_car_13",
 print("\n1. Loading and visualizing data ...\n")
 if load_new_data:
     # Load raw data
-    X_train_raw, y_train_raw, X_test_raw, X_test_ids, column_names = read_data()
+    X_train_raw, y_train_raw, X_test_raw, X_test_ids, X_train_ids, column_names = read_data()
     
     # Format data
     X_train_formatted, X_test_formatted = format_data(X_train_raw.copy(),
@@ -120,19 +118,14 @@ visualize_features(X_train, "Training data", bin_features=False,
 visualize_features(X_test, "Testing data", bin_features=False, 
                    cat_features=0, cont_features=False)
 
-
 ## ========================= 2. Feature engineering ======================== ##
 print("\n2. Adding and selecting features ...\n")
 # Select features
 X_train = X_train[train_features]
 X_test = X_test[train_features]
 
-# Don't Replace NAs for XGB
-print("\n   a) Don't replace NAs for XGB ...\n")
-#X_train, X_test = replace_nas(X_train, X_test)
-
 # Feature engineering
-print("\n   b) Add features ...\n")    
+print("\n   a) Add features ...\n")    
 
 # Add combinations of features
 print("\n     I) Add feature combinations ...\n")    
@@ -161,6 +154,14 @@ X_train, X_test = create_dummies(X_train, X_test, col_names)
 
 ## ===================== 3. Model training and evaluation ================== ##    
 print("\n3. Training and validating model\n")
+# Split data into first-stage training set and second stage validation set
+X_train["id"] = X_train_ids
+X_train, X_validation_2, y_train, y_validation_2 = train_test_split(
+            X_train, y_train, test_size = 0.1, random_state = 0)
+
+# Reset indexes for cross-validation
+X_train = X_train.reset_index(drop=True).drop('id', axis = 1)
+y_train = y_train.reset_index(drop=True)
 
 if train_model:   
     # Initialize model
@@ -176,6 +177,7 @@ if train_model:
     X = X_train.copy()
     y = y_train.copy()
     y_pred = np.zeros(X_test.shape[0])
+    y_pred_validation = np.zeros(X_validation_2.shape[0])
     
     for train_index, validation_index in kf.split(X, y):
         print("Cross-validation, Fold %d" % (len(normalized_gini)+1))
@@ -203,7 +205,11 @@ if train_model:
 
         # Make test set prediction
         y_pred += xgb.predict_proba(X_test[X_train.columns])[:,1]
-        del X_train, X_validate, y_train, y_validate
+        
+        # Make predictions for 2nd stage validation set
+        y_pred_validation += xgb.predict_proba(X_validation_2[X_train.columns])[:,1]
+
+        del X_train, X_validate, y_train, y_validate        
 
     # Evaluate results from CV
     print("Normalized gini coefficient %f +/- %f" % (np.mean(normalized_gini), 
@@ -211,13 +217,23 @@ if train_model:
     
     # Calculate prediction
     y_pred /= k
+    y_pred_validation /= k
 
 ## =========================== 4. Output results =========================== ##
+if False:
+    # Create dataframes for second stage model
+    second_stage_train = pd.DataFrame({'id':X_validation_2.id, 'target':y_pred_validation})
+    second_stage_test = pd.DataFrame({'id':X_validation_2.id, 'target':y_pred_validation})
+    
+    # Output results
+    second_stage_train.to_csv('../03_Results/xgb_2_stage_train.csv', sep=',', index=False)
+    second_stage_test.to_csv('../03_Results/xgb_2_stage_test.csv', sep=',', index=False)
+
 if make_predictions:
     print("\n4. Saving results\n")
     
-    # Create output dataframe
-    results = pd.DataFrame({'id':X_test_ids, 'target':y_pred})
+    # Create output dataframes
+    submission = pd.DataFrame({'id':X_test_ids, 'target':y_pred})
     
     # Output results
-    results.to_csv('../03_Results/xgb_prediction.csv', sep=',', index=False)
+    submission.to_csv('../03_Results/xgb_prediction.csv', sep=',', index=False)
