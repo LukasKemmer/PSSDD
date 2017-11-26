@@ -22,7 +22,7 @@ from sklearn.preprocessing import OneHotEncoder
 ## ============================ 0. Set parameters ========================== ##
 
 # Define parameters
-load_new_data = False # Set True to reload and format data
+load_new_data = True # Set True to reload and format data
 subset_data = True # Set Treu to select a random subsample of X, Y for testing
 subset_size = 1000 # Set the size of the random subsample
 train_model = True # Set True if model should be trained
@@ -178,7 +178,7 @@ if train_model:
     X = X_train.copy()
     y = y_train.copy()
     y_pred = np.zeros(X_test.shape[0])
-    y_pred_training = np.zeros(X_validation_2.shape[0])
+    y_pred_validation = np.zeros(X_validation_2.shape[0])
     
     for train_index, validation_index in kf.split(X, y):
         print("Cross-validation, Fold %d" % (len(normalized_gini)+1))
@@ -208,7 +208,7 @@ if train_model:
         y_pred += xgb.predict_proba(X_test[X_train.columns])[:,1]
         
         # Make predictions for the second stage training set
-        y_pred_training += xgb.predict_proba(X_validation_2[X_train.columns])[:,1]
+        y_pred_validation += xgb.predict_proba(X_validation_2[X_train.columns])[:,1]
 
         del X_train, X_validate, y_train, y_validate        
 
@@ -223,7 +223,7 @@ if train_model:
 ## =========================== 4. Output results =========================== ##
 if True:
     # Create dataframes for second stage model
-    second_stage_train_test = pd.DataFrame({'id':X_validation_2.id, 'xgb_pred':y_pred_training, 'target':y_validation_2})
+    second_stage_train_test = pd.DataFrame({'id':X_validation_2.id, 'xgb_pred':y_pred_validation, 'target':y_validation_2})
     
     # Output results
     second_stage_train_test.to_csv('../03_Results/xgb_2_stage_train_test.csv', sep=',', index=False)
