@@ -63,24 +63,23 @@ def balance(X_train, Y_train, proportion):
 
 
 def get_data():
-    X_train_bea = pd.read_csv(DATA_X_TRAIN_PATH + "_bea.csv")
     X_train_diego = pd.read_csv(DATA_X_TRAIN_PATH + "_diego.csv")
     X_train_lukas = pd.read_csv(DATA_X_TRAIN_PATH + "_lukas.csv")
     X_train_laurin = pd.read_csv(DATA_X_TRAIN_PATH + "_laurin.csv")
 
-    if not (X_train_bea.shape == X_train_diego.shape and X_train_bea.shape == X_train_lukas.shape and X_train_bea.shape == X_train_laurin.shape):
+    if not (X_train_diego.shape == X_train_lukas.shape and X_train_diego.shape == X_train_laurin.shape):
         print("Corrupt X_train files: Not same shape")
 
-    if not (X_train_bea["target"].equals(X_train_diego["target"]) and X_train_bea["target"].equals(X_train_lukas["target"]) and X_train_bea["target"].equals(X_train_laurin["target"])):
+    if not (X_train_diego["target"].equals(X_train_lukas["target"]) and X_train_diego["target"].equals(X_train_laurin["target"])):
         print("Corrupt X_train files: Not same targets")
 
     X_train_diego.drop("target", axis=1, inplace = True)
     X_train_lukas.drop("target", axis=1, inplace = True)
     X_train_laurin.drop("target", axis=1, inplace = True)
 
-    r = X_train_bea.shape[0]
+    r = X_train_diego.shape[0]
 
-    X_train = X_train_bea.merge(X_train_diego, on="id").merge(X_train_lukas, on="id")#.join(X_train_laurin)
+    X_train = X_train_diego.merge(X_train_lukas, on="id").merge(X_train_laurin, on="id")
 
     if not r == X_train.shape[0]:
         print("Corrupt X_train files: Join failed")

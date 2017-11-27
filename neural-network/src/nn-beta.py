@@ -49,12 +49,20 @@ y_train = df_train.target
 X_train = df_train
 
 X_train.drop("target", axis=1, inplace = True)
-X_train.drop("id", axis=1, inplace = True)
 
 X_train, X_validation_2, y_train, y_validation_2 = train_test_split(
             X_train, y_train, test_size=0.2, random_state=0)
 
-X_test = df_test.iloc[:,1:]
+X_validation_2_id = X_validation_2.id
+X_train = X_train.reset_index(drop=True)
+y_train = y_train.reset_index(drop=True)
+
+X_train.drop("id", axis=1, inplace = True)
+X_validation_2.drop("id", axis=1, inplace = True)
+
+# print(X_train.shape, y_train.shape)
+
+X_test = X_validation_2
 
 cols_use = [c for c in X_train.columns if (not c.startswith('ps_calc_'))]
 
@@ -209,13 +217,16 @@ full_val_preds = np.zeros(np.shape(X_train)[0])
 y_preds = np.zeros((np.shape(X_test)[0],K))
 
 kfold = StratifiedKFold(n_splits = K, 
-                            random_state = 231, 
+                            random_state = 0, 
                             shuffle = True)
 
 for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, y_train)):
 
     X_train_f, X_val_f = X_train.loc[f_ind].copy(), X_train.loc[outf_ind].copy()
     y_train_f, y_val_f = y_train[f_ind], y_train[outf_ind]
+
+    # intersection = pd.merge(X_val, X_train_f, how='inner', on=['id'])
+    # print(intersection.shape)
     
     X_test_f = X_test.copy()
     
@@ -257,7 +268,7 @@ print('Full validation gini: %.5f' % gini_normalizedc(y_train.values, full_val_p
 
 y_pred_final = np.mean(y_preds, axis=1)
 
-second_stage_train_test = pd.DataFrame({'id':X_validation_2.id, 'laurin':y_pred_final, 'target':y_validation_2})
+second_stage_train_test = pd.DataFrame({'id':X_validation_2_id, 'laurin':y_pred_final, 'target':y_validation_2})
 
 # Output results
 second_stage_train_test.to_csv('../output/x_train_laurin.csv', sep=',', index=False)
