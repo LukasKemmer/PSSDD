@@ -10,18 +10,35 @@ from keras.optimizers import Adam
 from keras.utils import custom_object_scope
 from keras import callbacks
 
+from callback import *
+
 from sklearn import preprocessing
 from sklearn.model_selection import StratifiedKFold
 
 DATA_X_TRAIN_PATH = '../input/x_train'
-DATA_TEST_PATH = '../input/x_test_stack.csv'
+DATA_X_TEST_PATH = '../input/pred'
 embed_cols = []
+
+def soft_AUC_theano(y_true, y_pred):
+    # Extract 1s
+    pos_pred_vr = y_pred[y_true.nonzero()]
+    # Extract zeroes
+    neg_pred_vr = y_pred[theano.tensor.eq(y_true, 0).nonzero()]
+    # Broadcast the subtraction to give a matrix of differences  between pairs of observations.
+    pred_diffs_vr = pos_pred_vr.dimshuffle(0, 'x') - neg_pred_vr.dimshuffle('x', 0)
+    # Get signmoid of each pair.
+    stats = theano.tensor.nnet.sigmoid(pred_diffs_vr * 2)
+    # Take average and reverse sign
+    return 1-theano.tensor.mean(stats) # as we want to minimise, and get this to zero
 
 def create_model(input_dim):
     model = Sequential()
-    model.add(Dense(3, input_dim=input_dim))
+    model.add(Dense(20, input_dim=input_dim))
     model.add(Activation('relu'))
     model.add(Dropout(.15))
+    # model.add(Dense(10))
+    # model.add(Activation('relu'))
+    # model.add(Dropout(.15))
     # model.add(Dense(20))
     # model.add(Activation('relu'))
     # model.add(Dropout(.15))
@@ -31,7 +48,8 @@ def create_model(input_dim):
     model.add(Dense(1))
     model.add(Activation('sigmoid'))
 
-    model.compile(loss='binary_crossentropy', optimizer='adam')
+    # model.compile(loss='binary_crossentropy', optimizer='adam')
+    model.compile(loss=soft_AUC_theano, optimizer='adam')
     
     return model
 
@@ -62,18 +80,37 @@ def balance(X_train, Y_train, proportion):
     return randomize(pd.concat([X_ones, X_zeros]), pd.concat([Y_ones, Y_zeros]))
 
 
+def get_test_data():
+    X_train_diego = pd.read_csv(DATA_X_TEST_PATH + "_diego.csv")
+    X_train_lukas = pd.read_csv(DATA_X_TEST_PATH + "_lukas.csv")
+    X_train_laurin = pd.read_csv(DATA_X_TEST_PATH + "_laurin.csv")
+
+    if not (X_train_diego.shape == X_train_laurin.shape):
+        print("Corrupt X_train files: Not same shape")
+
+    # X_train_lukas.drop("target", axis=1, inplace = True)
+    # X_train_laurin.drop("target", axis=1, inplace = True)
+
+    r = X_train_diego.shape[0]
+
+    X_train = X_train_diego.merge(X_train_lukas, on="id").merge(X_train_laurin, on="id")
+
+    if not r == X_train.shape[0]:
+        print("Corrupt X_train files: Join failed")
+
+    return X_train
+
 def get_data():
     X_train_diego = pd.read_csv(DATA_X_TRAIN_PATH + "_diego.csv")
     X_train_lukas = pd.read_csv(DATA_X_TRAIN_PATH + "_lukas.csv")
     X_train_laurin = pd.read_csv(DATA_X_TRAIN_PATH + "_laurin.csv")
 
-    if not (X_train_diego.shape == X_train_lukas.shape and X_train_diego.shape == X_train_laurin.shape):
+    if not (X_train_diego.shape == X_train_laurin.shape):
         print("Corrupt X_train files: Not same shape")
 
-    if not (X_train_diego["target"].equals(X_train_lukas["target"]) and X_train_diego["target"].equals(X_train_laurin["target"])):
+    if not (X_train_diego["target"].equals(X_train_laurin["target"])):
         print("Corrupt X_train files: Not same targets")
 
-    X_train_diego.drop("target", axis=1, inplace = True)
     X_train_lukas.drop("target", axis=1, inplace = True)
     X_train_laurin.drop("target", axis=1, inplace = True)
 
@@ -84,7 +121,7 @@ def get_data():
     if not r == X_train.shape[0]:
         print("Corrupt X_train files: Join failed")
 
-    X_test = pd.read_csv(DATA_TEST_PATH)
+    X_test = get_test_data()
 
     y_train = X_train.target
     X_train.drop ("target", axis=1, inplace = True)
@@ -138,6 +175,9 @@ def gini_normalizedc(a, p):
 
 def main():
     X_train, X_test, y_train = get_data()
+
+    X_test_id = X_test.id
+    X_test.drop ("id", axis=1, inplace = True)
 
     #network training
     K = 8
@@ -198,12 +238,10 @@ def main():
 
         y_pred_final = np.mean(y_preds, axis=1)
 
-        df_sub = pd.DataFrame({'id' : X_test.id, 
+        df_sub = pd.DataFrame({'id' : X_test_id, 
                             'target' : y_pred_final},
                             columns = ['id','target'])
-        df_sub.to_csv('NN_EntityEmbed_10fold-sub.csv', index=False)
-
-        pd.DataFrame(full_val_preds).to_csv('NN_EntityEmbed_10fold-val_preds.csv',index=False)
+        df_sub.to_csv('pred.csv', index=False)
 
 
 main()

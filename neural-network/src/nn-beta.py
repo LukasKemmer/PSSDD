@@ -51,7 +51,7 @@ X_train = df_train
 X_train.drop("target", axis=1, inplace = True)
 
 X_train, X_validation_2, y_train, y_validation_2 = train_test_split(
-            X_train, y_train, test_size=0.2, random_state=0)
+            X_train, y_train, test_size=0.3, random_state=0)
 
 X_validation_2_id = X_validation_2.id
 X_train = X_train.reset_index(drop=True)
