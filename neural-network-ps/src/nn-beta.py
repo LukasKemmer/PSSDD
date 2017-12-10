@@ -207,6 +207,8 @@ def ginic(actual, pred):
 def gini_normalizedc(a, p):
     return ginic(a, p) / ginic(a, a)
 
+print(X_train.shape)
+
 #network training
 K = 8
 runs_per_fold = 3
