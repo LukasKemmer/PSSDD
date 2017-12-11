@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pandas as pd
 
@@ -374,11 +375,15 @@ full_val_preds = np.zeros(np.shape(X_train)[0])
 y_preds = np.zeros((np.shape(X_test)[0],K))
 
 kfold = StratifiedKFold(n_splits = K, 
-                            random_state = 0, 
+                            random_state = 231, 
                             shuffle = True)
 
 del X_train['msno']
 del X_test['msno']
+
+X_train = X_train.head(100000)
+X_test = X_test.head(100000)
+Y_train = Y_train.head(100000)
 
 for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
 
@@ -390,13 +395,13 @@ for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
     
     X_test_f = X_test.copy()
     
-    #upsampling adapted from kernel: 
-    #https://www.kaggle.com/ogrellier/xgb-classifier-upsampling-lb-0-283
-    pos = (pd.Series(Y_train_f == 1))
+    # #upsampling adapted from kernel: 
+    # #https://www.kaggle.com/ogrellier/xgb-classifier-upsampling-lb-0-283
+    # pos = (pd.Series(Y_train_f == 1))
     
-    # Add positive examples
-    X_train_f = pd.concat([X_train_f, X_train_f.loc[pos]], axis=0)
-    Y_train_f = pd.concat([Y_train_f, Y_train_f.loc[pos]], axis=0)
+    # # Add positive examples
+    # X_train_f = pd.concat([X_train_f, X_train_f.loc[pos]], axis=0)
+    # Y_train_f = pd.concat([Y_train_f, Y_train_f.loc[pos]], axis=0)
     
     # Shuffle data
     idx = np.arange(len(X_train_f))
@@ -423,6 +428,11 @@ for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
     full_val_preds[outf_ind] += val_preds
         
     cv_score = log_loss(y_val_f.values, val_preds)
+    if math.isnan(cv_score):
+        pretty_pred = pd.DataFrame({'true' : y_val_f.values, 
+                       'pred' : val_preds},
+                       columns = ['true','pred'])
+        print(pretty_pred.head(1000))
 
     cv_scores.append(cv_score)
     print ('\nFold %i prediction cv score: %.5f\n' %(i,cv_score))
