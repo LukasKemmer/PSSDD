@@ -289,29 +289,29 @@ if False:
 
 # =============================================================================
 
-# def preproc(X_train, X_val, X_test):
+def preproc(X_train, X_val, X_test):
 
-#     input_list_train = []
-#     input_list_val = []
-#     input_list_test = []
+    input_list_train = []
+    input_list_val = []
+    input_list_test = []
     
-#     #the cols to be embedded: rescaling to range [0, # values)
-#     for c in embed_cols:
-#         raw_vals = np.unique(X_train[c])
-#         val_map = {}
-#         for i in range(len(raw_vals)):
-#             val_map[raw_vals[i]] = i       
-#         input_list_train.append(X_train[c].map(val_map).values)
-#         input_list_val.append(X_val[c].map(val_map).fillna(0).values)
-#         input_list_test.append(X_test[c].map(val_map).fillna(0).values)
+    #the cols to be embedded: rescaling to range [0, # values)
+    for c in categorical_features:
+        raw_vals = np.unique(X_train[c])
+        val_map = {}
+        for i in range(len(raw_vals)):
+            val_map[raw_vals[i]] = i       
+        input_list_train.append(X_train[c].map(val_map).values)
+        input_list_val.append(X_val[c].map(val_map).fillna(0).values)
+        input_list_test.append(X_test[c].map(val_map).fillna(0).values)
      
-#     #the rest of the columns
-#     other_cols = [c for c in X_train.columns if (not c in embed_cols)]
-#     input_list_train.append(X_train[other_cols].values)
-#     input_list_val.append(X_val[other_cols].values)
-#     input_list_test.append(X_test[other_cols].values)
+    #the rest of the columns
+    other_cols = [c for c in X_train.columns if (not c in categorical_features)]
+    input_list_train.append(X_train[other_cols].values)
+    input_list_val.append(X_val[other_cols].values)
+    input_list_test.append(X_test[other_cols].values)
     
-#     return input_list_train, input_list_val, input_list_test 
+    return input_list_train, input_list_val, input_list_test 
 
 def build_embedding_network():
     models = []
@@ -328,27 +328,27 @@ def build_embedding_network():
     #         embed_cols.append(c)
     #         print(c + ': %d values' % len(col_vals_dict[c])) #look at value counts to know the embedding dimensions
         
-    # model_payment_method_id = Sequential()
-    # model_payment_method_id.add(Embedding(37, 3, input_length=1))
-    # model_payment_method_id.add(Reshape(target_shape=(3,)))
-    # models.append(model_payment_method_id)
+    model_payment_method_id = Sequential()
+    model_payment_method_id.add(Embedding(37, 20, input_length=1))
+    model_payment_method_id.add(Reshape(target_shape=(20,)))
+    models.append(model_payment_method_id)
 
-    # model_city = Sequential()
-    # model_city.add(Embedding(21, 3, input_length=1))
-    # model_city.add(Reshape(target_shape=(3,)))
-    # models.append(model_city)
+    model_city = Sequential()
+    model_city.add(Embedding(21, 10, input_length=1))
+    model_city.add(Reshape(target_shape=(10,)))
+    models.append(model_city)
 
-    # model_registered_via = Sequential()
-    # model_registered_via.add(Embedding(5, 2, input_length=1))
-    # model_registered_via.add(Reshape(target_shape=(2,)))
-    # models.append(model_registered_via)
+    model_registered_via = Sequential()
+    model_registered_via.add(Embedding(5, 2, input_length=1))
+    model_registered_via.add(Reshape(target_shape=(2,)))
+    models.append(model_registered_via)
 
-    # model_rest = Sequential()
-    # model_rest.add(Dense(15, input_dim=17))
-    # models.append(model_rest)
+    model_rest = Sequential()
+    model_rest.add(Dense(15, input_dim=17))
+    models.append(model_rest)
 
     model = Sequential()
-    # model.add(Merge(models, mode='concat'))
+    model.add(Merge(models, mode='concat'))
     model.add(Dense(80, input_dim=20))
     model.add(Activation('relu'))
     model.add(Dropout(.35))
@@ -410,10 +410,10 @@ for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
     Y_train_f = Y_train_f.iloc[idx]
     
     #preprocessing
-    # proc_X_train_f, proc_X_val_f, proc_X_test_f = preproc(X_train_f, X_val_f, X_test_f)
-    proc_X_train_f = X_train_f
-    proc_X_val_f = X_val_f
-    proc_X_test_f = X_test_f
+    proc_X_train_f, proc_X_val_f, proc_X_test_f = preproc(X_train_f, X_val_f, X_test_f)
+    # proc_X_train_f = X_train_f
+    # proc_X_val_f = X_val_f
+    # proc_X_test_f = X_test_f
     
     #track of prediction for cv scores
     val_preds = 0
