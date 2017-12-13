@@ -16,6 +16,8 @@ from keras import callbacks
 from sklearn import preprocessing
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import log_loss
+from sklearn.svm import LinearSVC
+from sklearn.feature_selection import RFE
 
 import seaborn as sns
 import theano
@@ -32,7 +34,7 @@ NUMBER_OF_ESTIMATORS = 100
 
 print("0. Reading...")
 
-train = pd.read_csv(PATH_TO_DATA + 'train.csv', nrows=MAX_TRAINING)
+train = pd.read_csv(PATH_TO_DATA + 'train.csv')
 train = pd.concat((train, pd.read_csv(PATH_TO_DATA+'train_v2.csv')), axis=0, ignore_index=True).reset_index(drop=True)
 test = pd.read_csv(PATH_TO_DATA + 'sample_submission_v2.csv')
 
@@ -49,7 +51,7 @@ print(train)
 
 # Adds all the transactions columns of the most recent (i think most recent) transaction.
 # (we could see how to use all the data, if it is useful. We already have the number of transactions
-transactions = pd.read_csv(PATH_TO_DATA + 'transactions.csv', nrows=MAX_TRANSACTIONS)
+transactions = pd.read_csv(PATH_TO_DATA + 'transactions.csv')
 transactions = pd.concat((transactions, pd.read_csv(PATH_TO_DATA + 'transactions_v2.csv')), axis=0, ignore_index=True).reset_index(drop=True)
 transactions = transactions.sort_values(by=['transaction_date'], ascending=[False]).reset_index(drop=True)
 transactions = transactions.drop_duplicates(subset=['msno'], keep='first')
@@ -64,7 +66,7 @@ user_logs.columns = ['msno','logs_count']
 #user_logs = []; 
 
 # adds the data of the members. Maps the genders to numbers.
-members = pd.read_csv(PATH_TO_DATA + 'members_v3.csv', nrows=MAX_MEMBERS)
+members = pd.read_csv(PATH_TO_DATA + 'members_v3.csv')
 
 gender = {'male': 0, 'female': 1}
 #members = []; 
@@ -157,6 +159,9 @@ transactions['membership_expire_date_year'] = transactions['membership_expire_da
 transactions['membership_expire_date_month'] = transactions['membership_expire_date_month'].astype(np.int8)
 transactions['membership_expire_date_day'] = transactions['membership_expire_date_day'].astype(np.int8)
 
+current_transactions = transactions.sort_values(by=['transaction_date'], ascending=[False]).reset_index(drop=True)
+current_transactions = current_transactions.drop_duplicates(subset=['msno'], keep='first')
+
 transactions = transactions.drop('transaction_date', 1)
 transactions = transactions.drop('membership_expire_date', 1)
 
@@ -165,18 +170,18 @@ transactions = transactions.drop('membership_expire_date', 1)
 
 #Merges
 print ("2. Merges...")
-print('transactions merge...')
-X_train = pd.merge(train, transactions, how='left', on='msno')
-X_test = pd.merge(test, transactions, how='left', on='msno')
 print('user logs merge...')
-X_train = pd.merge(X_train, user_logs, how='left', on='msno')
-X_test = pd.merge(X_test, user_logs, how='left', on='msno')
+X_train = pd.merge(train, user_logs, how='left', on='msno')
+X_test = pd.merge(test, user_logs, how='left', on='msno')
 print('members merge...')
 X_train = pd.merge(X_train, members, how='left', on='msno')
 X_test = pd.merge(X_test, members, how='left', on='msno')
 print('gender map...')
 X_train['gender'] = X_train['gender'].map(gender)
-X_test['gender'] = X_train['gender'].map(gender)
+X_test['gender'] = X_test['gender'].map(gender)
+# print('transactions merge...')
+# X_train = pd.merge(X_train, transactions, how='left', on='msno')
+# X_test = pd.merge(X_test, transactions, how='left', on='msno')
 
 #can be useful
 X_train_members= pd.merge(train, members, how='left', on='msno')
@@ -187,12 +192,56 @@ X_test_members= pd.merge(test, members, how='left', on='msno')
 #List of Categorical Features: ['payment_method_id', 'is_auto_renew', 'is_cancel', 'city', 'gender', 'registered_via']
 #List of Numerical Features: ['trans_count', 'plan_list_price', 'actual_amount_paid', 'transaction_date', 'membership_expire_date', 'logs_count', 'registration_init_time']
 #Other:  'payment_plan_days'(?), bd(?). (They can be seen as numerical but also as categories.
-# TODO add: Discount, membership_duration, registration_duration.
-# TODO check if we can get something from logs, analyse that data.
 
-# ============================ 1. Clean the data matrix =================== #
-# TODO use other methods to clean the data. delete the ones with full N/A?
-# TODO eliminate outlayers (bd, etc...)
+#discount
+current_transactions['discount'] = current_transactions['plan_list_price'] - current_transactions['actual_amount_paid']
+#amt_per_day
+
+current_transactions['payment_plan_days'] = current_transactions['payment_plan_days'].replace(0, 30)
+current_transactions['amt_per_day'] = current_transactions['actual_amount_paid'] / current_transactions['payment_plan_days']
+
+# del current_transactions["msno"]
+
+# print(current_transactions.loc[current_transactions['payment_plan_days'] == 30]["plan_list_price"].mean())
+
+# indices = current_transactions.index[np.isinf(current_transactions).any(1)]
+# asdf = current_transactions.loc[current_transactions['payment_plan_days'] == 0]
+# print(indices.shape, asdf.shape)
+
+#is_discount
+current_transactions['is_discount'] = current_transactions.discount.apply(lambda x: 1 if x > 0 else 0)
+#membership_duration
+current_transactions['membership_days'] = pd.to_datetime(current_transactions['membership_expire_date']).subtract(pd.to_datetime(current_transactions['transaction_date'])).dt.days.astype(int)
+
+X_train = pd.merge(X_train, current_transactions, how='left', on='msno')
+X_test = pd.merge(X_test, current_transactions, how='left', on='msno')
+
+## Add combination features
+X_train['autorenew_&_not_cancel'] = ((X_train.is_auto_renew == 1) == (X_train.is_cancel == 0)).astype(np.int8)
+X_test['autorenew_&_not_cancel'] = ((X_test.is_auto_renew == 1) == (X_test.is_cancel == 0)).astype(np.int8)
+
+X_train['notAutorenew_&_cancel'] = ((X_train.is_auto_renew == 0) == (X_train.is_cancel == 1)).astype(np.int8)
+X_test['notAutorenew_&_cancel'] = ((X_test.is_auto_renew == 0) == (X_test.is_cancel == 1)).astype(np.int8)
+
+# Add totals for transactions
+total_transactions = transactions.groupby("msno").agg({
+        "payment_plan_days" : np.sum,
+        "actual_amount_paid" : np.sum,
+        "plan_list_price" : [np.sum, np.mean]}).reset_index()
+
+# update name
+total_transactions.columns = ["msno", 
+                                "total_payment_plan_days", 
+                                "total_actual_amount_paid", 
+                                "total_plan_list_price", 
+                                "mean_plan_list_price"]
+    
+total_transactions["total_discount"] = total_transactions.total_plan_list_price - \
+                                         total_transactions.total_actual_amount_paid
+
+# Merge
+X_train = pd.merge(X_train, total_transactions, how="left", on="msno")
+X_test = pd.merge(X_test, total_transactions, how="left", on="msno")
 
 #Logs NaN are because there where no logs.
 X_train['logs_count'] = X_train['logs_count'].fillna(0)
@@ -208,6 +257,10 @@ if True:
 # Replace remainings Na with -1
 X_train = X_train.fillna(-1)
 X_test = X_test.fillna(-1)
+
+# del X_train["msno"]
+
+# print(X_train.columns.to_series()[np.isinf(X_train).any()])
 
 # ========================= 3. Feature engineering ======================== #
 
@@ -258,6 +311,9 @@ for c in numerical_features:
 X_combine = X_combine.fillna(X_train.median())
 X_combine = X_combine.fillna(-1)
 
+X_train = X_combine.head(X_train.shape[0])
+del X_train['msno']
+X_test = X_combine.tail(X_test.shape[0])
 
 #Analysis of the Data relevance
 
@@ -313,7 +369,7 @@ def preproc(X_train, X_val, X_test):
     
     return input_list_train, input_list_val, input_list_test 
 
-def build_embedding_network():
+def build_embedding_network(input_dim):
     models = []
 
     # categorical_features = ['payment_method_id', 'city', 'registered_via']
@@ -328,28 +384,28 @@ def build_embedding_network():
     #         embed_cols.append(c)
     #         print(c + ': %d values' % len(col_vals_dict[c])) #look at value counts to know the embedding dimensions
         
-    model_payment_method_id = Sequential()
-    model_payment_method_id.add(Embedding(37, 20, input_length=1))
-    model_payment_method_id.add(Reshape(target_shape=(20,)))
-    models.append(model_payment_method_id)
+    # model_payment_method_id = Sequential()
+    # model_payment_method_id.add(Embedding(37, 20, input_length=1))
+    # model_payment_method_id.add(Reshape(target_shape=(20,)))
+    # models.append(model_payment_method_id)
 
-    model_city = Sequential()
-    model_city.add(Embedding(21, 10, input_length=1))
-    model_city.add(Reshape(target_shape=(10,)))
-    models.append(model_city)
+    # model_city = Sequential()
+    # model_city.add(Embedding(21, 10, input_length=1))
+    # model_city.add(Reshape(target_shape=(10,)))
+    # models.append(model_city)
 
-    model_registered_via = Sequential()
-    model_registered_via.add(Embedding(5, 2, input_length=1))
-    model_registered_via.add(Reshape(target_shape=(2,)))
-    models.append(model_registered_via)
+    # model_registered_via = Sequential()
+    # model_registered_via.add(Embedding(5, 2, input_length=1))
+    # model_registered_via.add(Reshape(target_shape=(2,)))
+    # models.append(model_registered_via)
 
-    model_rest = Sequential()
-    model_rest.add(Dense(15, input_dim=17))
-    models.append(model_rest)
+    # model_rest = Sequential()
+    # model_rest.add(Dense(15, input_dim=17))
+    # models.append(model_rest)
 
     model = Sequential()
-    model.add(Merge(models, mode='concat'))
-    model.add(Dense(80, input_dim=20))
+    # model.add(Merge(models, mode='concat'))
+    model.add(Dense(80, input_dim=input_dim))
     model.add(Activation('relu'))
     model.add(Dropout(.35))
     model.add(Dense(20))
@@ -364,7 +420,28 @@ def build_embedding_network():
     model.compile(loss='binary_crossentropy', optimizer='adam')
     return model
 
-print("4. Model training and evaluation...")
+print("4. Evaluate feature importance")
+
+# svm = LinearSVC()
+# # create the RFE model for the svm classifier 
+# # and select attributes
+# rfe = RFE(svm, X_train.shape[1]-5)
+# rfe = rfe.fit(X_train, Y_train)
+
+# # print summaries for the selection of attributes
+# print(list(zip(X_train.columns, rfe.support_, rfe.ranking_)))
+
+# # drop the 5 worst columns
+# useless_column_indices = [j for j in range(X_train.shape[1]) if not rfe.support_[j]]
+# useless_columns = X_train.columns[useless_column_indices]
+# print("Dropping " + useless_columns)
+# X_train = X_train.drop(useless_columns, axis=1)
+# X_test = X_test.drop(useless_columns, axis=1)
+
+X_train = X_train.drop("gender", axis=1)
+X_test = X_test.drop("gender", axis=1)
+
+print("5. Model training and evaluation...")
 
 K = 8
 runs_per_fold = 3
@@ -377,13 +454,6 @@ y_preds = np.zeros((np.shape(X_test)[0],K))
 kfold = StratifiedKFold(n_splits = K, 
                             random_state = 231, 
                             shuffle = True)
-
-del X_train['msno']
-del X_test['msno']
-
-X_train = X_train.head(100000)
-X_test = X_test.head(100000)
-Y_train = Y_train.head(100000)
 
 for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
 
@@ -410,20 +480,20 @@ for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
     Y_train_f = Y_train_f.iloc[idx]
     
     #preprocessing
-    proc_X_train_f, proc_X_val_f, proc_X_test_f = preproc(X_train_f, X_val_f, X_test_f)
-    # proc_X_train_f = X_train_f
-    # proc_X_val_f = X_val_f
-    # proc_X_test_f = X_test_f
+    # proc_X_train_f, proc_X_val_f, proc_X_test_f = preproc(X_train_f, X_val_f, X_test_f)
+    proc_X_train_f = X_train_f
+    proc_X_val_f = X_val_f
+    proc_X_test_f = X_test_f
     
     #track of prediction for cv scores
     val_preds = 0
     
     for j in range(runs_per_fold):    
-        NN = build_embedding_network()
+        NN = build_embedding_network(X_train.shape[1])
         NN.fit(proc_X_train_f.values, Y_train_f.values, epochs=n_epochs, batch_size=4096, verbose=1)
    
         val_preds += NN.predict(proc_X_val_f.values)[:,0] / runs_per_fold
-        y_preds[:,i] += NN.predict(proc_X_test_f[proc_X_train_f.columns] .values)[:,0] / runs_per_fold
+        y_preds[:,i] += NN.predict(proc_X_test_f[proc_X_train_f.columns].values)[:,0] / runs_per_fold
         
     full_val_preds[outf_ind] += val_preds
         
@@ -442,7 +512,5 @@ print('Full validation score: %.5f' % log_loss(Y_train.values, full_val_preds))
 
 y_pred_final = np.mean(y_preds, axis=1)
 
-# pred = pd.DataFrame({'id' : df_test.id, 
-#                        'target' : y_pred_final},
-#                        columns = ['id','target'])
-# pred.to_csv('pred.csv', index=False)
+submission = pd.DataFrame({'msno':test.msno, 'is_churn': y_pred_final})
+submission.to_csv('../output/pred.csv', index=False)

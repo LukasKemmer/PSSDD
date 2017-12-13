@@ -34,8 +34,8 @@ def main():
     print("Uploading " + localpath + " to " + remotepath)
     upload(sclient, localpath, remotepath)
 
-    print("Executing...")
-    execute(sclient, remotepath)
+    # print("Executing...")
+    # execute(sclient, remotepath)
 
 
 main()
