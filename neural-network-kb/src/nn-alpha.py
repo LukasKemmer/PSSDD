@@ -37,7 +37,6 @@ transactions = pd.concat((transactions, pd.read_csv('../01_Data/transactions_v2.
 
 print("\n1. Load and data ...\n")
 train, test, members, transactions = read_data()
-train['is_churn'] = 1
 
 ## ========================= 2. Feature engineering ======================== ##
 print("\n2. Adding and selecting features ...\n")
