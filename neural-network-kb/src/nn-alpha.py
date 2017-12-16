@@ -5,7 +5,7 @@ import pandas as pd
 from keras.models import Sequential
 from keras.layers import Dropout
 from keras.layers.normalization import BatchNormalization
-from keras.layers import Dense, Activation, Merge, Reshape, Dropout
+from keras.layers import Dense, Activation, Merge, Reshape, Dropout, LeakyReLU
 from keras.layers.embeddings import Embedding
 from keras import regularizers
 from keras.layers import Dense
@@ -21,209 +21,50 @@ from sklearn.feature_selection import RFE
 
 import seaborn as sns
 import theano
+from load_data import read_data, load_last_user_logs, get_num_user_logs
 
-PATH_TO_DATA = '../input/'
-PATH_TO_PREDICTIONS = '../output/'
-
-MAX_TRAINING = 1000000
-MAX_LOGS = 100000
-MAX_TRANSACTIONS = 1000000
-MAX_TEST = 9074700
-MAX_MEMBERS = 1000000
-NUMBER_OF_ESTIMATORS = 100
-
-print("0. Reading...")
-
-train = pd.read_csv(PATH_TO_DATA + 'train.csv')
-train = pd.concat((train, pd.read_csv(PATH_TO_DATA+'train_v2.csv')), axis=0, ignore_index=True).reset_index(drop=True)
-test = pd.read_csv(PATH_TO_DATA + 'sample_submission_v2.csv')
+## ========================= 1. Load and clean data ======================== ##
 
 '''
-# Add the number of transactions
-transactions = pd.read_csv(PATH_TO_DATA + 'transactions.csv', usecols=['msno'], nrows=MAX_TRANSACTIONS)
-transactions = pd.DataFrame(transactions['msno'].reset_index())
-transactions.columns = ['msno','trans_count']
-train = pd.merge(train, transactions, how='left', on='msno')
-test = pd.merge(test, transactions, how='left', on='msno')
-transactions = []; print('transaction merge...')
-print(train)
+train = pd.read_csv('../01_Data/train.csv')
+train = pd.concat((train, pd.read_csv('../01_Data/train_v2.csv')), axis=0, ignore_index=True).reset_index(drop=True)
+test = pd.read_csv('../01_Data/sample_submission_v2.csv')
+members = pd.read_csv('../01_Data/members_v3.csv')
+
+transactions = pd.read_csv('../01_Data/transactions.csv')
+transactions = pd.concat((transactions, pd.read_csv('../01_Data/transactions_v2.csv')), axis=0, ignore_index=True).reset_index(drop=True)
 '''
 
-# Adds all the transactions columns of the most recent (i think most recent) transaction.
-# (we could see how to use all the data, if it is useful. We already have the number of transactions
-transactions = pd.read_csv(PATH_TO_DATA + 'transactions.csv')
-transactions = pd.concat((transactions, pd.read_csv(PATH_TO_DATA + 'transactions_v2.csv')), axis=0, ignore_index=True).reset_index(drop=True)
-transactions = transactions.sort_values(by=['transaction_date'], ascending=[False]).reset_index(drop=True)
-transactions = transactions.drop_duplicates(subset=['msno'], keep='first')
-#transactions=[]
+print("\n1. Load and data ...\n")
+train, test, members, transactions = read_data()
+train['is_churn'] = 1
 
-# Adds the number of user logs. For now only use this as the kernel showed that it was the only think useful.
-# We could also see if 'number of recent logs' or thinks like that could help.
-user_logs = pd.read_csv(PATH_TO_DATA + 'user_logs.csv', usecols=['msno'], nrows=MAX_LOGS)
-user_logs = pd.concat((user_logs, pd.read_csv(PATH_TO_DATA + 'user_logs.csv', usecols=['msno'], nrows=MAX_LOGS)), axis=0, ignore_index=True).reset_index(drop=True)
-user_logs = pd.DataFrame(user_logs['msno'].value_counts().reset_index())
-user_logs.columns = ['msno','logs_count']
-#user_logs = []; 
+## ========================= 2. Feature engineering ======================== ##
+print("\n2. Adding and selecting features ...\n")
 
-# adds the data of the members. Maps the genders to numbers.
-members = pd.read_csv(PATH_TO_DATA + 'members_v3.csv')
-
-gender = {'male': 0, 'female': 1}
-#members = []; 
-
-# Memory reduction
-print("1. Memory reduction and cleaning...")
-
-#a) members.csv - consumption 273 MB -> 173 MB
-
-#columns: msno | city | bd | gender | registered_via | registration_init_time
-
-#first, we clean the bd (age) outliers
-mask = members['bd'] <= 1
-members.loc[mask, 'bd'] = members['bd'].median()
-
-mask = members['bd'] > 100
-members.loc[mask, 'bd'] = members['bd'].median()
-
-#convert the int64 columns in smaller variables according to the need
-
-members['city'] = members['city'].astype(np.int8) #max:22 min:1
-members['bd'] = members['bd'].astype(np.int16) #max:117 min:1
-members['registered_via'] = members['registered_via'].astype(np.int8) #max:13 min:3
-
-#for the dates: separate, in new columns, the information in each of the initial columns in order to convert the new ones in smaller integer types and drop the old ones 
-#but first, we clean the values that make no sense
-
-members_dates=['registration_init_time'] # , 'expiration_date']
-for c in members_dates:
-    mask = members[c] > 100000000
-    #members.loc[mask, c] = transactions[c].median()
-    members.loc[mask, c] = 0
-
-members['registration_init_year'] = members['registration_init_time'].apply(lambda x: int(str(x)[:4]))
-members['registration_init_month'] = members['registration_init_time'].apply(lambda x: int(str(x)[4:6]))
-members['registration_init_day'] = members['registration_init_time'].apply(lambda x: int(str(x)[-2:]))
-#members['expiration_date_year'] = members['expiration_date'].apply(lambda x: int(str(x)[:4]))
-#members['expiration_date_month'] = members['expiration_date'].apply(lambda x: int(str(x)[4:6]))
-#members['expiration_date_day'] = members['expiration_date'].apply(lambda x: int(str(x)[-2:]))
-
-members['registration_init_year'] = members['registration_init_year'].astype(np.int16)
-members['registration_init_month'] = members['registration_init_month'].astype(np.int8)
-members['registration_init_day'] = members['registration_init_day'].astype(np.int8)
-#members['expiration_date_year'] = members['expiration_date_year'].astype(np.int16)
-#members['expiration_date_month'] = members['expiration_date_month'].astype(np.int8)
-#members['expiration_date_day'] = members['expiration_date_day'].astype(np.int8)
-
-members = members.drop('registration_init_time', 1)
-#members = members.drop('expiration_date', 1)
-
-#b) train.csv - consumption 15MB -> 8MB
-
-#columns: msno | is_churn
-
-train['is_churn'] = train['is_churn'].astype(np.int8)
-
-#c) transactions.csv - consumption 1.4GB -> 513 MB
-
-#columns: msno | payment_method_id | payment_plan_days | plan_list_price | 
-#         actual_amount_paid | is_auto_renew | is_cancel | 
-#        transaction_date_year | transaction_date_month | transaction_date_day
-
-transactions['payment_method_id'] = transactions['payment_method_id'].astype(np.int8)
-transactions['payment_plan_days'] = transactions['payment_plan_days'].astype(np.int16)
-transactions['plan_list_price'] = transactions['plan_list_price'].astype(np.int16)
-transactions['actual_amount_paid'] = transactions['actual_amount_paid'].astype(np.int16)
-transactions['is_auto_renew'] = transactions['is_auto_renew'].astype(np.int8)
-transactions['is_cancel'] = transactions['is_cancel'].astype(np.int8)
-
-#for the dates: separate, in new columns, the information in each of the initial columns in order to convert the new ones in smaller integer types and drop the old ones 
-#but first, we clean the values that make no sense
-
-transactions_dates = ['membership_expire_date', 'transaction_date']
-for c in transactions_dates:
-    mask = transactions[c] > 100000000
-    #transactions.loc[mask, c] = transactions[c].median()
-    transactions.loc[mask, c] = 0
-
-transactions['transaction_date_year'] = transactions['transaction_date'].apply(lambda x: int(str(x)[:4]))
-transactions['transaction_date_month'] = transactions['transaction_date'].apply(lambda x: int(str(x)[4:6]))
-transactions['transaction_date_day'] = transactions['transaction_date'].apply(lambda x: int(str(x)[-2:]))
-transactions['membership_expire_date_year'] = transactions['membership_expire_date'].apply(lambda x: int(str(x)[:4]))
-transactions['membership_expire_date_month'] = transactions['membership_expire_date'].apply(lambda x: int(str(x)[4:6]))
-transactions['membership_expire_date_day'] = transactions['membership_expire_date'].apply(lambda x: int(str(x)[-2:]))
-
-transactions['transaction_date_year'] = transactions['transaction_date_year'].astype(np.int16)
-transactions['transaction_date_month'] = transactions['transaction_date_month'].astype(np.int8)
-transactions['transaction_date_day'] = transactions['transaction_date_day'].astype(np.int8)
-transactions['membership_expire_date_year'] = transactions['membership_expire_date_year'].astype(np.int16)
-transactions['membership_expire_date_month'] = transactions['membership_expire_date_month'].astype(np.int8)
-transactions['membership_expire_date_day'] = transactions['membership_expire_date_day'].astype(np.int8)
-
+# Prepare transactions
 current_transactions = transactions.sort_values(by=['transaction_date'], ascending=[False]).reset_index(drop=True)
+
+# Get features for current transaction
+print("\n   a) Creating features from most recent transaction ...\n")
+# get most recent transaction
 current_transactions = current_transactions.drop_duplicates(subset=['msno'], keep='first')
-
-transactions = transactions.drop('transaction_date', 1)
-transactions = transactions.drop('membership_expire_date', 1)
-
-#d) user_logs.csv - consumption ?
-
-
-#Merges
-print ("2. Merges...")
-print('user logs merge...')
-X_train = pd.merge(train, user_logs, how='left', on='msno')
-X_test = pd.merge(test, user_logs, how='left', on='msno')
-print('members merge...')
-X_train = pd.merge(X_train, members, how='left', on='msno')
-X_test = pd.merge(X_test, members, how='left', on='msno')
-print('gender map...')
-X_train['gender'] = X_train['gender'].map(gender)
-X_test['gender'] = X_test['gender'].map(gender)
-# print('transactions merge...')
-# X_train = pd.merge(X_train, transactions, how='left', on='msno')
-# X_test = pd.merge(X_test, transactions, how='left', on='msno')
-
-#can be useful
-X_train_members= pd.merge(train, members, how='left', on='msno')
-X_test_members= pd.merge(test, members, how='left', on='msno')
-
-
-#List of Columns:['msno', 'is_churn', 'trans_count', 'payment_method_id', 'payment_plan_days', 'plan_list_price', 'actual_amount_paid', 'is_auto_renew', 'transaction_date', 'membership_expire_date', 'is_cancel', 'logs_count', 'city', 'bd', 'gender', 'registered_via', 'registration_init_time']
-#List of Categorical Features: ['payment_method_id', 'is_auto_renew', 'is_cancel', 'city', 'gender', 'registered_via']
-#List of Numerical Features: ['trans_count', 'plan_list_price', 'actual_amount_paid', 'transaction_date', 'membership_expire_date', 'logs_count', 'registration_init_time']
-#Other:  'payment_plan_days'(?), bd(?). (They can be seen as numerical but also as categories.
-
-#discount
+# Calculate discount
 current_transactions['discount'] = current_transactions['plan_list_price'] - current_transactions['actual_amount_paid']
-#amt_per_day
-
+# Calculate cost per day
 current_transactions['payment_plan_days'] = current_transactions['payment_plan_days'].replace(0, 30)
 current_transactions['amt_per_day'] = current_transactions['actual_amount_paid'] / current_transactions['payment_plan_days']
-
-# del current_transactions["msno"]
-
-# print(current_transactions.loc[current_transactions['payment_plan_days'] == 30]["plan_list_price"].mean())
-
-# indices = current_transactions.index[np.isinf(current_transactions).any(1)]
-# asdf = current_transactions.loc[current_transactions['payment_plan_days'] == 0]
-# print(indices.shape, asdf.shape)
-
-#is_discount
+# Check if discount
 current_transactions['is_discount'] = current_transactions.discount.apply(lambda x: 1 if x > 0 else 0)
-#membership_duration
+# Calculate the number of membership days within the current transaction
 current_transactions['membership_days'] = pd.to_datetime(current_transactions['membership_expire_date']).subtract(pd.to_datetime(current_transactions['transaction_date'])).dt.days.astype(int)
 
-X_train = pd.merge(X_train, current_transactions, how='left', on='msno')
-X_test = pd.merge(X_test, current_transactions, how='left', on='msno')
-
-## Add combination features
-X_train['autorenew_&_not_cancel'] = ((X_train.is_auto_renew == 1) == (X_train.is_cancel == 0)).astype(np.int8)
-X_test['autorenew_&_not_cancel'] = ((X_test.is_auto_renew == 1) == (X_test.is_cancel == 0)).astype(np.int8)
-
-X_train['notAutorenew_&_cancel'] = ((X_train.is_auto_renew == 0) == (X_train.is_cancel == 1)).astype(np.int8)
-X_test['notAutorenew_&_cancel'] = ((X_test.is_auto_renew == 0) == (X_test.is_cancel == 1)).astype(np.int8)
+# Add current transactions
+train = pd.merge(train, current_transactions, how="left", on="msno")
+test = pd.merge(test, current_transactions, how="left", on="msno")
 
 # Add totals for transactions
+print("\n   b) Create features for all transactions ...\n")
 total_transactions = transactions.groupby("msno").agg({
         "payment_plan_days" : np.sum,
         "actual_amount_paid" : np.sum,
@@ -239,111 +80,111 @@ total_transactions.columns = ["msno",
 total_transactions["total_discount"] = total_transactions.total_plan_list_price - \
                                          total_transactions.total_actual_amount_paid
 
-# Merge
-X_train = pd.merge(X_train, total_transactions, how="left", on="msno")
-X_test = pd.merge(X_test, total_transactions, how="left", on="msno")
+del transactions
 
-#Logs NaN are because there where no logs.
-X_train['logs_count'] = X_train['logs_count'].fillna(0)
-X_test['logs_count'] = X_test['logs_count'].fillna(0)
+# Add total transactions
+train = pd.merge(train, total_transactions, how="left", on="msno")
+test = pd.merge(test, total_transactions, how="left", on="msno")
 
-#columns with NaNs: ['city','bd','gender','registered_via','registration_init_year','registration_init_month','registration_init_day']
+# Map genders to 1 and 2
+print("\n   c) Map genders to 1 and 2 ...\n")
+'''
+train['is_train'] = 1
+test['is_train'] = 0
+combined = pd.concat([train, test], axis = 0)
 
-# Replace remaining NAs with median
-if True:
-    X_train = X_train.fillna(X_train.median())
-    X_test = X_test.fillna(X_test.median())
+combined = pd.merge(combined, members, how='left', on='msno')
+members = []; print('members merge...') 
 
-# Replace remainings Na with -1
-X_train = X_train.fillna(-1)
-X_test = X_test.fillna(-1)
+gender = {'male':1, 'female':2}
+combined['gender'] = combined['gender'].map(gender)
 
-# del X_train["msno"]
+train = combined[combined['is_train'] == 1]
+test = combined[combined['is_train'] == 0]
 
-# print(X_train.columns.to_series()[np.isinf(X_train).any()])
+train.drop(['is_train'], axis = 1, inplace = True)
+test.drop(['is_train'], axis = 1, inplace = True)
 
-# ========================= 3. Feature engineering ======================== #
+del combined
+'''
+train = pd.merge(train, members, how="left", on="msno")
+test = pd.merge(test, members, how="left", on="msno")
 
-# Features: 
-#members (7): city | bd | gender | registered_via | 
-#       registration_init_year | registration_init_month | registration_init_day
+gender = {'male':1, 'female':2}
+test["gender"] = test["gender"].map(gender)
+train["gender"] = train["gender"].map(gender)
 
-#transactions(9): payment_method_id | payment_plan_days | plan_list_price | 
-#         actual_amount_paid | is_auto_renew | is_cancel | 
-#        transaction_date_year | transaction_date_month | transaction_date_day
-
-#user_logs: 
-
-print("3. Feature engineering...")
-
-# Create dummy features for categorical features
-categorical_features = ['payment_method_id', 'city', 'registered_via']
-binary_features = ['is_auto_renew', 'is_cancel', 'gender']
-numerical_features = ['bd', 'payment_plan_days', 'plan_list_price', 'actual_amount_paid', 'transaction_date_year', 'transaction_date_month', 'transaction_date_day', 'membership_expire_date_year', 'membership_expire_date_month', 'membership_expire_date_day', 'logs_count', 'registration_init_year', 'registration_init_month', 'registration_init_day']
-# TODO change bd and payment plat to categorical to see what happens
-# TODO add feature when they are added
-
-for c in categorical_features:
-    X_train[c] = X_train[c].astype('category')
-    X_test[c] = X_test[c].astype('category')
-
-for c in binary_features:
-    X_train[c] = X_train[c].astype('bool')
-    X_test[c] = X_test[c].astype('bool')
-
-# Split X_train into X_train and Y_train
-Y_train = X_train['is_churn']
-X_train = X_train.drop(['is_churn'], axis=1)
-
-frames = [X_train, X_test]
-X_combine = pd.concat(frames)
-X_combine = pd.concat([X_combine, pd.get_dummies(X_combine.select_dtypes(
-        include=['category']))], axis=1)
-
-# test X_combine.select_dtypes(include=['category'])
-X_combine = X_combine.drop(['payment_method_id', 'city', 'registered_via'], axis=1)
-
-for c in numerical_features:
-    if X_combine[c].std() > 0.00000001:
-        X_combine[c] = (X_combine[c] - X_combine[c].mean()) / X_combine[c].std()
-
-# TODO check if we can delete the one from before.
-X_combine = X_combine.fillna(X_train.median())
-X_combine = X_combine.fillna(-1)
-
-X_train = X_combine.head(X_train.shape[0])
-del X_train['msno']
-X_test = X_combine.tail(X_test.shape[0])
-
-#Analysis of the Data relevance
-
-if False:
-    #gender -> none
-    
-    #registered_via->relevant (almost no churn is city 19)
-    churn_registered_via = pd.crosstab(X_train_members['registered_via'], X_train_members['is_churn'])
-    churn_vs_registered_via_rate = churn_registered_via.div(churn_registered_via.sum(1).astype(float), axis=0) # normalize the value
-    churn_vs_registered_via_rate.plot(kind='barh', stacked=True)
-    # churn mostly in 4>3>9>7>13
-    
-    #city->relevant
-    churn_vs_city = pd.crosstab(X_train_members['city'], X_train_members['is_churn'])
-    churn_vs_city_rate = churn_vs_city.div(churn_vs_city.sum(1).astype(float),  axis=0) # normalize the value
-    churn_vs_city_rate.plot(kind='bar', stacked=True)
-    
-    data = X_train_members.groupby('city').aggregate({'msno':'count'}).reset_index()
-    ax = sns.barplot(x='city', y='msno', data=data) #max: city 13 > 5 > 4...
-    
-    #bd (==age)-> relevant
-    sns.violinplot(x=X_train_members["is_churn"], y=X_train_members["bd"], data=X_train_members)
+'''
+last_user_logs = []
 
 
-# ===================== 4. Model training and evaluation ================== #
-#model = tree.DecisionTreeClassifier() # Decision tree
-#model = ensemble.RandomForestClassifier(n_estimators=NUMBER_OF_ESTIMATORS) # Random forest
-#model = linear_model.LogisticRegression() # Logistic regression
+df_iter = pd.read_csv('../01_Data/user_logs.csv', low_memory=False, iterator=True, chunksize=10000000)
 
-# =============================================================================
+
+i = 0 #~400 Million Records - starting at the end but remove locally if needed
+for df in df_iter:
+    if i>35:
+        if len(df)>0:
+            print(df.shape)
+            p = Pool(cpu_count())
+            df = p.map(transform_df, np.array_split(df, cpu_count()))   
+            df = pd.concat(df, axis=0, ignore_index=True).reset_index(drop=True)
+            df = transform_df2(df)
+            p.close(); p.join()
+            last_user_logs.append(df)
+            print('...', df.shape)
+            df = []
+    i+=1
+
+def transform_df(df):
+    df = pd.DataFrame(df)
+    df = df.sort_values(by=['date'], ascending=[False])
+    df = df.reset_index(drop=True)
+    df = df.drop_duplicates(subset=['msno'], keep='first')
+    return df
+
+def transform_df2(df):
+    df = df.sort_values(by=['date'], ascending=[False])
+    df = df.reset_index(drop=True)
+    df = df.drop_duplicates(subset=['msno'], keep='first')
+    return df
+
+last_user_logs.append(transform_df(pd.read_csv('../01_Data/user_logs_v2.csv')))
+last_user_logs = pd.concat(last_user_logs, axis=0, ignore_index=True).reset_index(drop=True)
+last_user_logs = transform_df2(last_user_logs)
+
+train = pd.merge(train, last_user_logs, how='left', on='msno')
+test = pd.merge(test, last_user_logs, how='left', on='msno')
+last_user_logs=[]
+'''
+# Create features from last logs
+print("\n   d) Create features from last logs ...\n")
+last_user_logs = load_last_user_logs()
+
+train = pd.merge(train, last_user_logs, how='left', on='msno')
+test = pd.merge(test, last_user_logs, how='left', on='msno')
+del last_user_logs
+
+# Create combination features
+print("\n   e) Create and add combination features ...\n")
+train['autorenew_&_not_cancel'] = ((train.is_auto_renew == 1) == (train.is_cancel == 0)).astype(np.int8)
+test['autorenew_&_not_cancel'] = ((test.is_auto_renew == 1) == (test.is_cancel == 0)).astype(np.int8)
+
+train['notAutorenew_&_cancel'] = ((train.is_auto_renew == 0) == (train.is_cancel == 1)).astype(np.int8)
+test['notAutorenew_&_cancel'] = ((test.is_auto_renew == 0) == (test.is_cancel == 1)).astype(np.int8)
+
+# Get number of logs per user
+print("\n   f) Get number of logs per user ...\n")
+num_user_logs = get_num_user_logs()
+
+# Add num_user_logs
+train = pd.merge(train, num_user_logs, how="left", on="msno")
+test = pd.merge(test, num_user_logs, how="left", on="msno")
+
+# Fill nans with 0
+print("\n   h) Replace NA by 0 ...\n")
+train = train.fillna(0)
+test = test.fillna(0)
 
 def preproc(X_train, X_val, X_test):
 
@@ -406,13 +247,13 @@ def build_embedding_network(input_dim):
     model = Sequential()
     # model.add(Merge(models, mode='concat'))
     model.add(Dense(80, input_dim=input_dim))
-    model.add(Activation('relu'))
+    model.add(Activation(LeakyReLU(alpha=0.6)))
     model.add(Dropout(.35))
     model.add(Dense(20))
-    model.add(Activation('relu'))
+    model.add(Activation(LeakyReLU(alpha=0.6)))
     model.add(Dropout(.15))
     model.add(Dense(10))
-    model.add(Activation('relu'))
+    model.add(Activation(LeakyReLU(alpha=0.6)))
     model.add(Dropout(.15))
     model.add(Dense(1))
     model.add(Activation('sigmoid'))
@@ -420,7 +261,7 @@ def build_embedding_network(input_dim):
     model.compile(loss='binary_crossentropy', optimizer='adam')
     return model
 
-print("4. Evaluate feature importance")
+# print("4. Evaluate feature importance")
 
 # svm = LinearSVC()
 # # create the RFE model for the svm classifier 
@@ -438,40 +279,48 @@ print("4. Evaluate feature importance")
 # X_train = X_train.drop(useless_columns, axis=1)
 # X_test = X_test.drop(useless_columns, axis=1)
 
-X_train = X_train.drop("gender", axis=1)
-X_test = X_test.drop("gender", axis=1)
+## ===================== 3. Model training and evaluation ================== ##
+print("\n3. Training and validating model\n")
 
-print("5. Model training and evaluation...")
+# Initialize array for evaluation results
+log_loss_val = []
+
+# Initialize array for predictions
+y_pred = []
+
+# Make copies for X, Y to b e used within CV
+X = train.drop(["msno", "is_churn"], axis=1).copy()
+y = train["is_churn"].copy()
 
 K = 8
 runs_per_fold = 3
 n_epochs = 15
 
 cv_scores = []
-full_val_preds = np.zeros(np.shape(X_train)[0])
-y_preds = np.zeros((np.shape(X_test)[0],K))
+full_val_preds = np.zeros(np.shape(X)[0])
+y_preds = np.zeros((np.shape(test)[0],K))
 
 kfold = StratifiedKFold(n_splits = K, 
                             random_state = 231, 
                             shuffle = True)
 
-for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
+for i, (f_ind, outf_ind) in enumerate(kfold.split(X, y)):
 
-    X_train_f, X_val_f = X_train.loc[f_ind].copy(), X_train.loc[outf_ind].copy()
-    Y_train_f, y_val_f = Y_train[f_ind], Y_train[outf_ind]
+    X_train_f, X_val_f = X.loc[f_ind].copy(), X.loc[outf_ind].copy()
+    Y_train_f, y_val_f = y[f_ind], y[outf_ind]
 
     # intersection = pd.merge(X_val, X_train_f, how='inner', on=['id'])
     # print(intersection.shape)
     
-    X_test_f = X_test.copy()
+    X_test_f = test.copy()
     
     # #upsampling adapted from kernel: 
     # #https://www.kaggle.com/ogrellier/xgb-classifier-upsampling-lb-0-283
-    # pos = (pd.Series(Y_train_f == 1))
+    pos = (pd.Series(Y_train_f == 1))
     
     # # Add positive examples
-    # X_train_f = pd.concat([X_train_f, X_train_f.loc[pos]], axis=0)
-    # Y_train_f = pd.concat([Y_train_f, Y_train_f.loc[pos]], axis=0)
+    X_train_f = pd.concat([X_train_f, X_train_f.loc[pos]], axis=0)
+    Y_train_f = pd.concat([Y_train_f, Y_train_f.loc[pos]], axis=0)
     
     # Shuffle data
     idx = np.arange(len(X_train_f))
@@ -489,7 +338,7 @@ for i, (f_ind, outf_ind) in enumerate(kfold.split(X_train, Y_train)):
     val_preds = 0
     
     for j in range(runs_per_fold):    
-        NN = build_embedding_network(X_train.shape[1])
+        NN = build_embedding_network(X.shape[1])
         NN.fit(proc_X_train_f.values, Y_train_f.values, epochs=n_epochs, batch_size=4096, verbose=1)
    
         val_preds += NN.predict(proc_X_val_f.values)[:,0] / runs_per_fold
