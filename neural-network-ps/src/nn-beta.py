@@ -19,6 +19,7 @@ from keras.layers.embeddings import Embedding
 
 from sklearn.model_selection import StratifiedKFold
 
+# function to randomize a dataframe
 def randomize(df0, axis=0):
     indices = np.arange(df0.shape[axis])
     np.random.shuffle(indices)
@@ -28,6 +29,7 @@ def randomize(df0, axis=0):
     return df0
 
 
+# function to balance (up/downsample) a dataframe
 def balance(X_train, proportion):
     one_indices = (X_train["target"] == 1)
     zero_indices = (X_train["target"] == 0)
@@ -50,6 +52,7 @@ X_train = df_train
 
 X_train.drop("target", axis=1, inplace = True)
 
+# we used this to partition the testing sample correctly for the stacking later on
 X_train, X_validation_2, y_train, y_validation_2 = train_test_split(
             X_train, y_train, test_size=0.3, random_state=0)
 
@@ -69,6 +72,8 @@ cols_use = [c for c in X_train.columns if (not c.startswith('ps_calc_'))]
 X_train = X_train[cols_use]
 X_test = X_test[cols_use]
 
+
+# The cols that are representing a category will be one hotted and embedded later on
 col_vals_dict = {c: list(X_train[c].unique()) for c in X_train.columns if c.endswith('_cat')}
 
 embed_cols = []
@@ -79,8 +84,8 @@ for c in col_vals_dict:
 
 print('\n')
 
-def build_embedding_network():
-    
+# builds the scheme of the neural network with embedded layers for each category
+def build_embedding_network():    
     models = []
     
     model_ps_ind_02_cat = Sequential()

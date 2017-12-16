@@ -19,6 +19,7 @@ DATA_X_TRAIN_PATH = '../input/x_train'
 DATA_X_TEST_PATH = '../input/pred'
 embed_cols = []
 
+# a custom cost function that is closer to auc than binary cross entropy
 def soft_AUC_theano(y_true, y_pred):
     # Extract 1s
     pos_pred_vr = y_pred[y_true.nonzero()]
